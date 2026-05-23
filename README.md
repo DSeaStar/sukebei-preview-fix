@@ -17,6 +17,7 @@ This fork modernizes the old `sukebei preview` behavior for current image hosts.
 - Deduplicates once more before rendering list previews, so stale cache entries or equivalent URL variants do not show the same image twice.
 - Deduplicates inline previews on detail pages too, including pairs like `https://...` and `https ://...` that point to the same image.
 - Avoids duplicating official cover images when the same cover appears once from MGStage and again from a mirrored image host.
+- Uses Markdown thumbnail images as fallbacks when redirect links such as `j91.asia/rdrctit.php?...` are blocked.
 - Prefers full-size image filenames over common thumbnail suffixes such as `_s`, `_t`, `.th`, and `.md`, with the original thumbnail URL kept as a fallback.
 - Displays images at original size when possible, then scales them down responsively so the full image stays visible inside the browser viewport.
 - Keeps list pages compact by hiding preview rows until images are found and removing rows whose images all fail to load.
