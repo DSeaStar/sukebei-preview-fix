@@ -7,6 +7,7 @@ This fork modernizes the old `sukebei preview` behavior for current image hosts.
 ## Features
 
 - Shows preview images on Sukebei / Nyaa list pages.
+- Expands supported image links directly inside `Sukebei / Nyaa /view/*` detail pages.
 - Supports Markdown images, plain image URLs, and image-host landing pages.
 - Handles Chevereto-style hosts where `example.com/upload/file.jpg` is an HTML page and the real image is usually under `example.com/upload/ib/file.jpg`.
 - Falls back to parsing image-host HTML for `og:image`, `/upload/ib/`, and `Application/storage` image URLs.
@@ -22,12 +23,14 @@ This fork modernizes the old `sukebei preview` behavior for current image hosts.
 3. Open a supported page, for example:
    - `https://sukebei.nyaa.si/`
    - `https://sukebei.nyaa.si/?s=leechers&o=desc`
+   - `https://sukebei.nyaa.si/view/1234567`
    - `https://nyaa.si/`
 4. Confirm that the top-right toggle displays the current script version.
+5. On detail pages, supported image links inside the description are expanded inline below the original link.
 
 ## Notes
 
-- The script does not bypass short-link services such as `ouo.io`, ad-gated pages, or CAPTCHA pages.
+- The script does not bypass short-link services such as `ouo.io`, ad-gated pages, or CAPTCHA pages. Detail pages show these as manual links when they cannot be expanded.
 - It only parses image links already present in the torrent description.
 - Some hosts may still fail because of region blocking, hotlink protection, temporary outages, or anti-adblock behavior.
 - Large original images can make list pages tall.
