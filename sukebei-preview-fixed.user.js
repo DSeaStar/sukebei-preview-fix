@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.16
+// @version      2.0.0-codex.17
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -19,7 +19,7 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.16";
+    const SCRIPT_VERSION = "2.0.0-codex.17";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
     const CACHE_KEY = "sukebei_preview_codex_cache_v7";
@@ -196,10 +196,10 @@
 
     function buildPreviewRow(row) {
         const previewRow = document.createElement("tr");
-        previewRow.className = "sp-preview-row";
+        previewRow.className = "sp-preview-row sp-preview-row-hidden";
         const cell = document.createElement("td");
         cell.colSpan = Math.max(row.children.length, 1);
-        cell.innerHTML = `<div class="sp-preview-box sp-loading">loading preview...</div>`;
+        cell.innerHTML = `<div class="sp-preview-box"></div>`;
         previewRow.appendChild(cell);
         return previewRow;
     }
@@ -687,9 +687,12 @@
 
             const image = document.createElement("img");
             image.alt = "";
-            image.loading = "lazy";
+            image.loading = "eager";
             image.referrerPolicy = "no-referrer";
             image.dataset.src = item.imageUrl;
+            image.addEventListener("load", () => {
+                previewRow.classList.remove("sp-preview-row-hidden");
+            }, { once: true });
             image.addEventListener("error", () => {
                 clearCached(detailUrl);
                 recoverBrokenImage(image, item);
@@ -722,7 +725,7 @@
         const attempt = Number(image.dataset.recoverAttempt || "0") + 1;
         image.dataset.recoverAttempt = String(attempt);
         if (attempt > 4) {
-            image.closest(".sp-card")?.classList.add("sp-card-error");
+            markCardError(image);
             return;
         }
 
@@ -767,7 +770,7 @@
             }
         }
 
-        image.closest(".sp-card")?.classList.add("sp-card-error");
+        markCardError(image);
     }
 
     function loadImageBlob(image, src) {
@@ -779,8 +782,26 @@
                 image.src = URL.createObjectURL(blob);
             })
             .catch(() => {
-                image.closest(".sp-card")?.classList.add("sp-card-error");
+                markCardError(image);
             });
+    }
+
+    function markCardError(image) {
+        const card = image.closest(".sp-card");
+        card?.classList.add("sp-card-error");
+        pruneEmptyPreviewRow(image);
+    }
+
+    function pruneEmptyPreviewRow(node) {
+        const row = node.closest(".sp-preview-row");
+        if (!row) {
+            return;
+        }
+        const hasVisibleCard = Array.from(row.querySelectorAll(".sp-card"))
+            .some((card) => !card.classList.contains("sp-card-error"));
+        if (!hasVisibleCard) {
+            row.remove();
+        }
     }
 
     function gmGetText(url) {
@@ -997,6 +1018,9 @@
             .sp-toggle input {
                 margin: -1px 5px 0 0;
                 vertical-align: middle;
+            }
+            .sp-preview-row-hidden {
+                display: none !important;
             }
             .sp-preview-row > td {
                 padding: 6px 8px !important;
