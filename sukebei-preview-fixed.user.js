@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.21
+// @version      2.0.0-codex.22
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -25,10 +25,10 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.21";
+    const SCRIPT_VERSION = "2.0.0-codex.22";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
-    const CACHE_KEY = "sukebei_preview_codex_cache_v11";
+    const CACHE_KEY = "sukebei_preview_codex_cache_v12";
     const enabledKey = "sukebei_preview_codex_enabled";
     const imageExt = /\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
     const urlPattern = /https?\s*:\s*\/\/[^\s"'<>()[\]{}]+/gi;
@@ -80,6 +80,7 @@
         "cosplaytele.vip",
         "fc2ppv.me",
         "fc2ppv.stream",
+        "friday.sankuai.com",
         "hentaicovid.vip",
         "hentai4f.com",
         "hentai-manga.org",
