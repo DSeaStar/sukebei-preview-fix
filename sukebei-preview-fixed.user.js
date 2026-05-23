@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.22
+// @version      2.0.0-codex.24
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -25,10 +25,13 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.22";
+    const SCRIPT_VERSION = "2.0.0-codex.24";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
-    const CACHE_KEY = "sukebei_preview_codex_cache_v12";
+    const CACHE_KEY = "sukebei_preview_codex_cache_v14";
+    const IMAGE_HASH_SIZE = 8;
+    const IMAGE_HASH_DISTANCE = 5;
+    const IMAGE_HASH_MIN_PIXELS = 4096;
     const enabledKey = "sukebei_preview_codex_enabled";
     const imageExt = /\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
     const urlPattern = /https?\s*:\s*\/\/[^\s"'<>()[\]{}]+/gi;
@@ -118,6 +121,7 @@
         cache: loadCache(),
         detailQueue: [],
         activeDetails: 0,
+        imageHashScopes: new WeakMap(),
         observer: null
     };
 
@@ -259,6 +263,7 @@
         const links = Array.from(root.querySelectorAll("a[href]"));
         const claimedKeys = new Set();
         const claimedContentKeys = existingContentKeys(root);
+        primeExistingImageHashes(root);
         let processed = 0;
 
         links.forEach((link) => {
@@ -406,6 +411,9 @@
         image.loading = "lazy";
         image.referrerPolicy = "no-referrer";
         image.dataset.src = item.imageUrl;
+        image.addEventListener("load", () => {
+            dedupeLoadedImageByContent(image, inlinePreviewScope(container));
+        }, { once: true });
         image.addEventListener("error", () => {
             recoverBrokenImage(image, item);
         });
@@ -764,6 +772,7 @@
             previewRow.remove();
             return;
         }
+        const shouldHashContent = uniqueItems.length > 1;
         uniqueItems.forEach((item) => {
             const itemKey = previewItemKey(item);
             const anchor = document.createElement("a");
@@ -782,6 +791,9 @@
             image.dataset.src = item.imageUrl;
             image.addEventListener("load", () => {
                 previewRow.classList.remove("sp-preview-row-hidden");
+                if (shouldHashContent) {
+                    dedupeLoadedImageByContent(image, previewRow);
+                }
             }, { once: true });
             image.addEventListener("error", () => {
                 clearCached(detailUrl);
@@ -894,16 +906,162 @@
     }
 
     function isOfficialCoverHost(host) {
-        return host === "image.mgstage.com";
+        return host === "image.mgstage.com"
+            || host === "awsimgsrc.dmm.co.jp"
+            || host === "pics.dmm.co.jp";
     }
 
     function javProductCodeFromPath(pathname) {
         const decoded = decodeURIComponent(String(pathname || "")).toLowerCase();
-        const match = decoded.match(/(?:^|[^a-z0-9])([a-z]{2,10})[-_](\d{2,6})(?:[^a-z0-9]|$)/i);
+        const match = decoded.match(/(?:^|[^a-z0-9])([a-z]{2,10})[-_]?(\d{2,6})(?:[^a-z0-9]|$)/i);
         if (!match) {
             return "";
         }
-        return `${match[1].toLowerCase()}-${match[2]}`;
+        const number = match[2].replace(/^0+/, "") || "0";
+        return `${match[1].toLowerCase()}-${number}`;
+    }
+
+    function primeExistingImageHashes(root) {
+        const scope = inlinePreviewScope(root);
+        root.querySelectorAll("img[src]").forEach((image) => {
+            if (image.closest(".sp-card")) {
+                return;
+            }
+            const src = absoluteUrl(image.getAttribute("src"), location.href);
+            if (!src || looksLikeUiAsset(src)) {
+                return;
+            }
+            const track = () => {
+                dedupeLoadedImageByContent(image, scope);
+            };
+            if (image.complete && image.naturalWidth) {
+                setTimeout(track, 0);
+            } else {
+                image.addEventListener("load", track, { once: true });
+            }
+        });
+    }
+
+    function inlinePreviewScope(node) {
+        return node.closest("#torrent-description") || document.body;
+    }
+
+    async function dedupeLoadedImageByContent(image, scope) {
+        if (!scope || !document.documentElement.contains(image)) {
+            return false;
+        }
+        let hash = "";
+        try {
+            hash = await imageContentHash(image);
+        } catch {
+            return false;
+        }
+        if (!hash || !document.documentElement.contains(image)) {
+            return false;
+        }
+
+        const entries = imageHashEntries(scope);
+        const duplicate = entries.find((entry) => hammingDistance(entry.hash, hash) <= IMAGE_HASH_DISTANCE);
+        const isPreview = Boolean(image.closest(".sp-card"));
+        if (duplicate) {
+            if (isPreview) {
+                markCardDuplicate(image);
+            } else if (duplicate.isPreview) {
+                markCardDuplicate(duplicate.image);
+                entries.push({ hash, image, isPreview: false });
+            }
+            return true;
+        }
+
+        entries.push({ hash, image, isPreview });
+        return false;
+    }
+
+    function imageHashEntries(scope) {
+        const entries = (state.imageHashScopes.get(scope) || [])
+            .filter((entry) => {
+                return document.documentElement.contains(entry.image)
+                    && !entry.image.closest(".sp-card-error");
+            });
+        state.imageHashScopes.set(scope, entries);
+        return entries;
+    }
+
+    async function imageContentHash(image) {
+        if (!image.naturalWidth || !image.naturalHeight) {
+            return "";
+        }
+        if (image.naturalWidth * image.naturalHeight < IMAGE_HASH_MIN_PIXELS) {
+            return "";
+        }
+
+        const src = image.currentSrc || image.src || image.dataset.src;
+        const blob = await blobFromImageSource(src);
+        if (!blob || !String(blob.type || "").startsWith("image/")) {
+            return "";
+        }
+
+        const drawable = await drawableFromBlob(blob);
+        const canvas = document.createElement("canvas");
+        canvas.width = IMAGE_HASH_SIZE;
+        canvas.height = IMAGE_HASH_SIZE;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) {
+            return "";
+        }
+        context.drawImage(drawable, 0, 0, IMAGE_HASH_SIZE, IMAGE_HASH_SIZE);
+        if (typeof drawable.close === "function") {
+            drawable.close();
+        }
+
+        const pixels = context.getImageData(0, 0, IMAGE_HASH_SIZE, IMAGE_HASH_SIZE).data;
+        const grays = [];
+        for (let index = 0; index < pixels.length; index += 4) {
+            grays.push((pixels[index] * 299 + pixels[index + 1] * 587 + pixels[index + 2] * 114) / 1000);
+        }
+        const average = grays.reduce((sum, value) => sum + value, 0) / grays.length;
+        return grays.map((value) => value >= average ? "1" : "0").join("");
+    }
+
+    async function blobFromImageSource(src) {
+        if (!src || /^data:/i.test(src)) {
+            return null;
+        }
+        if (/^blob:/i.test(src)) {
+            const response = await fetch(src);
+            return response.ok ? response.blob() : null;
+        }
+        return gmGetBlob(src);
+    }
+
+    function drawableFromBlob(blob) {
+        if ("createImageBitmap" in window) {
+            return createImageBitmap(blob);
+        }
+        return new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(blob);
+            const image = new Image();
+            image.onload = () => {
+                URL.revokeObjectURL(url);
+                resolve(image);
+            };
+            image.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error("image decode failed"));
+            };
+            image.src = url;
+        });
+    }
+
+    function hammingDistance(left, right) {
+        const length = Math.min(left.length, right.length);
+        let distance = Math.abs(left.length - right.length);
+        for (let index = 0; index < length; index += 1) {
+            if (left[index] !== right[index]) {
+                distance += 1;
+            }
+        }
+        return distance;
     }
 
     function observeImage(image) {
@@ -993,6 +1151,15 @@
         const card = image.closest(".sp-card");
         card?.classList.add("sp-card-error");
         pruneEmptyPreviewRow(image);
+    }
+
+    function markCardDuplicate(image) {
+        const inlineContainer = image.closest(".sp-inline-image-container");
+        if (inlineContainer) {
+            inlineContainer.remove();
+            return;
+        }
+        markCardError(image);
     }
 
     function pruneEmptyPreviewRow(node) {
