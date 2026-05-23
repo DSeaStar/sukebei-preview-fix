@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.19
+// @version      2.0.0-codex.20
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -25,10 +25,10 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.19";
+    const SCRIPT_VERSION = "2.0.0-codex.20";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
-    const CACHE_KEY = "sukebei_preview_codex_cache_v9";
+    const CACHE_KEY = "sukebei_preview_codex_cache_v10";
     const enabledKey = "sukebei_preview_codex_enabled";
     const imageExt = /\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
     const urlPattern = /https?\s*:\s*\/\/[^\s"'<>()[\]{}]+/gi;
@@ -257,6 +257,7 @@
     function expandInlineImages(root) {
         const links = Array.from(root.querySelectorAll("a[href]"));
         const claimedKeys = new Set();
+        const claimedContentKeys = existingContentKeys(root);
         let processed = 0;
 
         links.forEach((link) => {
@@ -275,6 +276,14 @@
             }
             if (reservedKey) {
                 claimedKeys.add(reservedKey);
+            }
+            const reservedContentKey = previewContentKeyForUrl(href);
+            if (reservedContentKey && claimedContentKeys.has(reservedContentKey)) {
+                link.dataset.spInlineProcessed = "1";
+                return;
+            }
+            if (reservedContentKey && isOfficialCoverImage(directImageFromUrl(href) || href)) {
+                claimedContentKeys.add(reservedContentKey);
             }
 
             processed += 1;
@@ -303,6 +312,14 @@
                     }
                     if (itemKey) {
                         claimedKeys.add(itemKey);
+                    }
+                    const itemContentKey = previewContentKey(items[0]);
+                    if (itemContentKey && claimedContentKeys.has(itemContentKey) && itemContentKey !== reservedContentKey) {
+                        container.remove();
+                        return;
+                    }
+                    if (itemContentKey && isOfficialCoverImage(items[0].imageUrl)) {
+                        claimedContentKeys.add(itemContentKey);
                     }
                     renderInlineImage(container, items[0], href, itemKey || reservedKey);
                 })
@@ -740,7 +757,37 @@
     }
 
     function dedupePreviewItems(items) {
-        return uniqueBy(items || [], previewItemKey);
+        const exactUnique = uniqueBy(items || [], previewItemKey);
+        const contentGroups = new Map();
+        exactUnique.forEach((item) => {
+            const contentKey = previewContentKey(item);
+            if (!contentKey) {
+                return;
+            }
+            const group = contentGroups.get(contentKey) || { hasOfficial: false };
+            group.hasOfficial = group.hasOfficial || isOfficialCoverImage(item.imageUrl) || isOfficialCoverImage(item.pageUrl);
+            contentGroups.set(contentKey, group);
+        });
+
+        const seenContentKeys = new Set();
+        return exactUnique.filter((item) => {
+            const contentKey = previewContentKey(item);
+            if (!contentKey) {
+                return true;
+            }
+            const group = contentGroups.get(contentKey);
+            if (!group?.hasOfficial) {
+                return true;
+            }
+            if (group?.hasOfficial && !isOfficialCoverImage(item.imageUrl) && !isOfficialCoverImage(item.pageUrl)) {
+                return false;
+            }
+            if (seenContentKeys.has(contentKey)) {
+                return false;
+            }
+            seenContentKeys.add(contentKey);
+            return true;
+        });
     }
 
     function previewItemKey(item) {
@@ -752,6 +799,73 @@
 
     function previewKeyForUrl(url) {
         return normalizedImageKey(directImageFromUrl(url) || url);
+    }
+
+    function previewContentKey(item) {
+        if (!item) {
+            return "";
+        }
+        return contentSignatureForImage(item.imageUrl)
+            || contentSignatureForImage(directImageFromUrl(item.pageUrl))
+            || contentSignatureForImage(item.pageUrl);
+    }
+
+    function previewContentKeyForUrl(url) {
+        return contentSignatureForImage(directImageFromUrl(url) || url);
+    }
+
+    function existingContentKeys(root) {
+        const keys = new Set();
+        root.querySelectorAll("img[src]").forEach((image) => {
+            const src = absoluteUrl(image.getAttribute("src"), location.href);
+            const key = contentSignatureForImage(src);
+            if (key && isOfficialCoverImage(src)) {
+                keys.add(key);
+            }
+        });
+        return keys;
+    }
+
+    function contentSignatureForImage(rawUrl) {
+        if (!rawUrl) {
+            return "";
+        }
+        let parsed;
+        try {
+            parsed = new URL(cleanUrl(rawUrl));
+        } catch {
+            return "";
+        }
+        const host = parsed.hostname.toLowerCase();
+        if (!isOfficialCoverHost(host) && host !== "google-images.papakatsu.co") {
+            return "";
+        }
+        const code = javProductCodeFromPath(parsed.pathname);
+        return code ? `cover:${code}` : "";
+    }
+
+    function isOfficialCoverImage(rawUrl) {
+        if (!rawUrl) {
+            return false;
+        }
+        try {
+            return isOfficialCoverHost(new URL(cleanUrl(rawUrl)).hostname.toLowerCase());
+        } catch {
+            return false;
+        }
+    }
+
+    function isOfficialCoverHost(host) {
+        return host === "image.mgstage.com";
+    }
+
+    function javProductCodeFromPath(pathname) {
+        const decoded = decodeURIComponent(String(pathname || "")).toLowerCase();
+        const match = decoded.match(/(?:^|[^a-z0-9])([a-z]{2,10})[-_](\d{2,6})(?:[^a-z0-9]|$)/i);
+        if (!match) {
+            return "";
+        }
+        return `${match[1].toLowerCase()}-${match[2]}`;
     }
 
     function observeImage(image) {
