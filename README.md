@@ -13,6 +13,7 @@ This fork modernizes the old `sukebei preview` behavior for current image hosts.
 - Handles Chevereto-style hosts where `example.com/upload/file.jpg` is an HTML page and the real image is usually under `example.com/upload/ib/file.jpg`.
 - Handles redirect-style image links where the real image filename is stored in a query parameter, such as `rdrctit.php?to=..._s.jpg`.
 - Falls back to parsing image-host HTML for `og:image`, `/upload/ib/`, and `Application/storage` image URLs.
+- Includes domain-specific HTML parsing support for hosts such as `friday.sankuai.com` when the page is reachable from the browser.
 - Normalizes duplicate image links, including spaced `https ://` URLs and host-specific real-image rewrites.
 - Deduplicates once more before rendering list previews, so stale cache entries or equivalent URL variants do not show the same image twice.
 - Deduplicates inline previews on detail pages too, including pairs like `https://...` and `https ://...` that point to the same image.
