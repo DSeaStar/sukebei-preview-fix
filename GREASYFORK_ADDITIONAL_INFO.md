@@ -8,6 +8,7 @@
 
 - 自动在 Sukebei / Nyaa 列表页加载详情页预览图
 - 自动在 Sukebei / Nyaa `/view/*` 详情页内展开描述里的图片链接
+- 从列表页点击种子详情时，会在新标签页打开详情页
 - 支持常见 Markdown 图片、普通图片 URL、图床展示页 URL
 - 通用处理 Chevereto 类图床链接，例如 `example.com/upload/xxx.jpg`
 - 自动尝试转换为真实图片地址，例如 `example.com/upload/ib/xxx.jpg`
