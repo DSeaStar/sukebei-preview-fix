@@ -11,8 +11,10 @@ This fork modernizes the old `sukebei preview` behavior for current image hosts.
 - Opens torrent detail links from list pages in a new tab.
 - Supports Markdown images, plain image URLs, and image-host landing pages.
 - Handles Chevereto-style hosts where `example.com/upload/file.jpg` is an HTML page and the real image is usually under `example.com/upload/ib/file.jpg`.
+- Handles redirect-style image links where the real image filename is stored in a query parameter, such as `rdrctit.php?to=..._s.jpg`.
 - Falls back to parsing image-host HTML for `og:image`, `/upload/ib/`, and `Application/storage` image URLs.
 - Normalizes duplicate image links, including spaced `https ://` URLs and host-specific real-image rewrites.
+- Prefers full-size image filenames over common thumbnail suffixes such as `_s`, `_t`, `.th`, and `.md`, with the original thumbnail URL kept as a fallback.
 - Displays images at original size when possible, then scales them down responsively so the full image stays visible inside the browser viewport.
 - Filters known ad or placeholder images, including `apiplayer.b-cdn.net/images/static_flyer.jpg`.
 - Cleans legacy preview rows from older `sukebei preview` scripts to avoid duplicate or stale previews.
