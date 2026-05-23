@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.12
+// @version      2.0.0-codex.14
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -19,7 +19,7 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.12";
+    const SCRIPT_VERSION = "2.0.0-codex.14";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
     const CACHE_KEY = "sukebei_preview_codex_cache_v7";
@@ -153,6 +153,7 @@
             if (!link) {
                 return;
             }
+            makeDetailLinkOpenInNewTab(link);
             const previewRow = buildPreviewRow(row);
             row.after(previewRow);
             enqueueDetail({ row, previewRow, detailUrl: link.href });
@@ -161,6 +162,7 @@
     }
 
     function initViewPage(description) {
+        removeBlockedInlineAssets(description);
         expandInlineImages(description);
     }
 
@@ -168,6 +170,11 @@
         return Array.from(row.querySelectorAll("a[href*='/view/']")).find((link) => {
             return /\/view\/\d+/.test(link.getAttribute("href") || "");
         });
+    }
+
+    function makeDetailLinkOpenInNewTab(link) {
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
     }
 
     function cleanupLegacyPreview() {
@@ -296,6 +303,27 @@
         } catch {
             return false;
         }
+    }
+
+    function removeBlockedInlineAssets(root) {
+        root.querySelectorAll("img[src]").forEach((image) => {
+            const src = absoluteUrl(image.getAttribute("src"), location.href);
+            if (!src || !looksLikeUiAsset(src)) {
+                return;
+            }
+            const parentLink = image.closest("a");
+            image.remove();
+            if (parentLink && !parentLink.textContent.trim() && !parentLink.querySelector("img")) {
+                parentLink.remove();
+            }
+        });
+
+        root.querySelectorAll("a[href]").forEach((link) => {
+            const href = absoluteUrl(link.getAttribute("href"), location.href);
+            if (href && isBlockedImageUrl(href)) {
+                link.remove();
+            }
+        });
     }
 
     function renderInlineImage(container, item, originalUrl) {
