@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.14
+// @version      2.0.0-codex.15
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -19,13 +19,13 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.14";
+    const SCRIPT_VERSION = "2.0.0-codex.15";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
     const CACHE_KEY = "sukebei_preview_codex_cache_v7";
     const enabledKey = "sukebei_preview_codex_enabled";
     const imageExt = /\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
-    const urlPattern = /https?:\/\/[^\s"'<>()[\]{}]+/gi;
+    const urlPattern = /https?\s*:\s*\/\/[^\s"'<>()[\]{}]+/gi;
     const blockedImagePatterns = [
         /^https?:\/\/apiplayer\.b-cdn\.net\/images\/static_flyer\.jpg(?:[?#].*)?$/i
     ];
@@ -391,7 +391,7 @@
             add(match[0], "plain-url");
         }
 
-        return uniqueBy(candidates, (candidate) => candidate.url);
+        return uniqueBy(candidates, (candidate) => normalizedImageKey(candidate.thumb || candidate.url));
     }
 
     async function resolveCandidates(candidates, limit) {
@@ -426,7 +426,7 @@
                 }
             }
         }
-        return uniqueBy(resolved, (item) => item.imageUrl).slice(0, limit);
+        return uniqueBy(resolved, (item) => normalizedImageKey(item.imageUrl)).slice(0, limit);
     }
 
     function directImageFromUrl(rawUrl) {
@@ -758,8 +758,41 @@
         }
         return decodeHtml(String(rawUrl))
             .trim()
+            .replace(/^https?\s*:\s*\/\//i, (match) => match.toLowerCase().startsWith("https") ? "https://" : "http://")
             .replace(/[),.;\]*]+$/g, "")
             .replace(/&amp;/g, "&");
+    }
+
+    function normalizedImageKey(rawUrl) {
+        const url = cleanUrl(rawUrl);
+        if (!url) {
+            return "";
+        }
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch {
+            return url.toLowerCase();
+        }
+
+        if (parsed.hostname.toLowerCase() === "google-images.papakatsu.co" && parsed.pathname.includes("/upload/image/")) {
+            parsed.pathname = parsed.pathname.replace("/upload/image/", "/upload/uploads/");
+        }
+
+        const cheveretoDirect = cheveretoImageUrl(parsed);
+        if (cheveretoDirect) {
+            try {
+                parsed = new URL(cheveretoDirect);
+            } catch {
+                return cheveretoDirect.toLowerCase();
+            }
+        }
+
+        parsed.hash = "";
+        parsed.protocol = parsed.protocol.toLowerCase();
+        parsed.hostname = parsed.hostname.toLowerCase();
+        parsed.pathname = parsed.pathname.replace(/\/{2,}/g, "/");
+        return parsed.href.toLowerCase();
     }
 
     function absoluteUrl(value, baseUrl) {
