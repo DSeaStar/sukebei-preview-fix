@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.10
+// @version      2.0.0-codex.11
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -18,7 +18,7 @@
     "use strict";
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
-    const SCRIPT_VERSION = "2.0.0-codex.10";
+    const SCRIPT_VERSION = "2.0.0-codex.11";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
     const CACHE_KEY = "sukebei_preview_codex_cache_v7";
@@ -737,6 +737,8 @@
                 padding: 6px 8px !important;
                 white-space: normal !important;
                 background: #f8f8f8;
+                max-width: calc(100vw - 24px);
+                overflow-x: hidden;
             }
             .sp-preview-box {
                 display: flex;
@@ -744,6 +746,9 @@
                 flex-wrap: wrap;
                 gap: 8px;
                 min-height: 34px;
+                width: 100%;
+                max-width: calc(100vw - 32px);
+                overflow-x: hidden;
             }
             .sp-loading,
             .sp-muted {
@@ -754,6 +759,7 @@
             .sp-card {
                 display: inline-block;
                 width: auto;
+                max-width: 100%;
                 min-height: 0;
                 max-height: none;
                 overflow: visible;
@@ -765,7 +771,7 @@
                 display: block;
                 width: auto;
                 height: auto;
-                max-width: none;
+                max-width: min(100%, calc(100vw - 48px));
                 max-height: none;
                 object-fit: initial;
             }
