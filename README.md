@@ -8,6 +8,7 @@ This fork modernizes the old `sukebei preview` behavior for current image hosts.
 
 - Shows preview images on Sukebei / Nyaa list pages.
 - Expands supported image links directly inside `Sukebei / Nyaa /view/*` detail pages.
+- Opens torrent detail links from list pages in a new tab.
 - Supports Markdown images, plain image URLs, and image-host landing pages.
 - Handles Chevereto-style hosts where `example.com/upload/file.jpg` is an HTML page and the real image is usually under `example.com/upload/ib/file.jpg`.
 - Falls back to parsing image-host HTML for `og:image`, `/upload/ib/`, and `Application/storage` image URLs.
