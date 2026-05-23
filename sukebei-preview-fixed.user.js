@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.15
+// @version      2.0.0-codex.16
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -19,7 +19,7 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.15";
+    const SCRIPT_VERSION = "2.0.0-codex.16";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
     const CACHE_KEY = "sukebei_preview_codex_cache_v7";
@@ -32,6 +32,16 @@
     const shortLinkHosts = [
         "ouo.io",
         "ouo.press"
+    ];
+    const imageQueryParamNames = [
+        "file",
+        "i",
+        "img",
+        "image",
+        "src",
+        "to",
+        "u",
+        "url"
     ];
     const knownHtmlImageHosts = [
         "google-images.papakatsu.co",
@@ -444,27 +454,31 @@
             return "";
         }
         const host = parsed.hostname.toLowerCase();
+        const queryImage = imageFromQueryParam(parsed, true);
+        if (queryImage) {
+            return queryImage;
+        }
         if (host === "google-images.papakatsu.co" && parsed.pathname.includes("/upload/image/")) {
             parsed.pathname = parsed.pathname.replace("/upload/image/", "/upload/uploads/");
-            return parsed.href;
+            return preferFullSizeImageUrl(parsed.href);
         }
         if (host.endsWith("orangepix.is") && parsed.pathname.includes("/images/")) {
             parsed.pathname = parsed.pathname
                 .replace(/\.th(\.[a-z0-9]+)$/i, "$1")
                 .replace(/\.md(\.[a-z0-9]+)$/i, "$1");
-            return parsed.href;
+            return preferFullSizeImageUrl(parsed.href);
         }
         const cheveretoDirect = cheveretoImageUrl(parsed);
         if (cheveretoDirect) {
-            return cheveretoDirect;
+            return preferFullSizeImageUrl(cheveretoDirect);
         }
         if (knownHtmlImageHosts.some((domain) => host === domain || host.endsWith(`.${domain}`))) {
             if (host.endsWith("orangepix.is") && parsed.pathname.includes("/images/")) {
-                return parsed.href;
+                return preferFullSizeImageUrl(parsed.href);
             }
             return "";
         }
-        return imageExt.test(parsed.pathname) ? parsed.href : "";
+        return imageExt.test(parsed.pathname) ? preferFullSizeImageUrl(parsed.href) : "";
     }
 
     function cheveretoImageUrl(parsed) {
@@ -483,9 +497,19 @@
         } catch {
             return "";
         }
+        const queryImage = imageFromQueryParam(parsed, false);
+        if (queryImage && queryImage !== directImageFromUrl(rawUrl)) {
+            return queryImage;
+        }
         if (parsed.hostname.toLowerCase() === "google-images.papakatsu.co" && parsed.pathname.includes("/upload/image/")) {
             parsed.pathname = parsed.pathname.replace("/upload/image/", "/upload/uploads/");
             return parsed.href;
+        }
+        if (imageExt.test(parsed.pathname)) {
+            const preferred = preferFullSizeImageUrl(parsed.href);
+            if (preferred !== parsed.href) {
+                return parsed.href;
+            }
         }
         return "";
     }
@@ -494,6 +518,9 @@
         try {
             const parsed = new URL(rawUrl);
             const host = parsed.hostname.toLowerCase();
+            if (imageFromQueryParam(parsed, false)) {
+                return false;
+            }
             if (cheveretoImageUrl(parsed)) {
                 return true;
             }
@@ -501,6 +528,58 @@
         } catch {
             return false;
         }
+    }
+
+    function imageFromQueryParam(parsed, preferFullSize) {
+        const lowerNames = new Set(imageQueryParamNames);
+        const entries = Array.from(parsed.searchParams.entries());
+        const ordered = entries.slice().sort((left, right) => {
+            const leftKnown = lowerNames.has(left[0].toLowerCase()) ? 0 : 1;
+            const rightKnown = lowerNames.has(right[0].toLowerCase()) ? 0 : 1;
+            return leftKnown - rightKnown;
+        });
+
+        for (const [name, value] of ordered) {
+            const cleanedValue = cleanUrl(value);
+            if (!imageExt.test(cleanedValue)) {
+                continue;
+            }
+            const imageValue = preferFullSize ? preferFullSizePath(cleanedValue) : cleanedValue;
+            if (/^https?:\/\//i.test(imageValue)) {
+                return imageValue;
+            }
+            const copy = new URL(parsed.href);
+            copy.searchParams.set(name, imageValue);
+            return copy.href;
+        }
+        return "";
+    }
+
+    function preferFullSizeImageUrl(rawUrl) {
+        const url = cleanUrl(rawUrl);
+        if (!url) {
+            return "";
+        }
+        try {
+            const parsed = new URL(url);
+            const queryImage = imageFromQueryParam(parsed, true);
+            if (queryImage) {
+                return queryImage;
+            }
+            parsed.pathname = preferFullSizePath(parsed.pathname);
+            return parsed.href;
+        } catch {
+            return preferFullSizePath(url);
+        }
+    }
+
+    function preferFullSizePath(value) {
+        return String(value || "")
+            .replace(/[_-](?:thumb|thumbnail|small|preview)(?=\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$)/i, "")
+            .replace(/_s(?=\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$)/i, "")
+            .replace(/_t(?=\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$)/i, "")
+            .replace(/\.th(?=\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$)/i, "")
+            .replace(/\.md(?=\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$)/i, "");
     }
 
     function pickImageFromHtml(html, pageUrl) {
@@ -775,6 +854,15 @@
             return url.toLowerCase();
         }
 
+        const queryImage = imageFromQueryParam(parsed, true);
+        if (queryImage) {
+            try {
+                parsed = new URL(queryImage);
+            } catch {
+                return queryImage.toLowerCase();
+            }
+        }
+
         if (parsed.hostname.toLowerCase() === "google-images.papakatsu.co" && parsed.pathname.includes("/upload/image/")) {
             parsed.pathname = parsed.pathname.replace("/upload/image/", "/upload/uploads/");
         }
@@ -791,7 +879,7 @@
         parsed.hash = "";
         parsed.protocol = parsed.protocol.toLowerCase();
         parsed.hostname = parsed.hostname.toLowerCase();
-        parsed.pathname = parsed.pathname.replace(/\/{2,}/g, "/");
+        parsed.pathname = preferFullSizePath(parsed.pathname).replace(/\/{2,}/g, "/");
         return parsed.href.toLowerCase();
     }
 
