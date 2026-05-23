@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.20
+// @version      2.0.0-codex.21
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -25,10 +25,10 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.20";
+    const SCRIPT_VERSION = "2.0.0-codex.21";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
-    const CACHE_KEY = "sukebei_preview_codex_cache_v10";
+    const CACHE_KEY = "sukebei_preview_codex_cache_v11";
     const enabledKey = "sukebei_preview_codex_enabled";
     const imageExt = /\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
     const urlPattern = /https?\s*:\s*\/\/[^\s"'<>()[\]{}]+/gi;
@@ -269,6 +269,12 @@
                 return;
             }
 
+            const inlineThumb = imageCandidateFromElement(link.querySelector("img"), location.href);
+            if (inlineThumb && directImageFromUrl(inlineThumb)) {
+                link.dataset.spInlineProcessed = "1";
+                return;
+            }
+
             const reservedKey = previewKeyForUrl(href);
             if (reservedKey && claimedKeys.has(reservedKey)) {
                 link.dataset.spInlineProcessed = "1";
@@ -299,7 +305,7 @@
                 return;
             }
 
-            resolveCandidates([{ url: href, source: "inline-link", thumb: "" }], 1)
+            resolveCandidates([{ url: href, source: "inline-link", thumb: inlineThumb || "" }], 1)
                 .then((items) => {
                     if (!items.length) {
                         container.remove();
@@ -460,11 +466,21 @@
             const directThumb = directImageFromUrl(candidate.thumb);
             const direct = directImageFromUrl(candidate.url);
             if (direct) {
-                resolved.push({ pageUrl: candidate.url, imageUrl: direct, kind: candidate.source });
+                resolved.push({
+                    pageUrl: candidate.url,
+                    imageUrl: direct,
+                    fallbackUrls: uniqueBy([directImageFallback(candidate.url), directThumb], (src) => src),
+                    kind: candidate.source
+                });
                 continue;
             }
             if (directThumb) {
-                resolved.push({ pageUrl: candidate.url, imageUrl: directThumb, kind: candidate.source });
+                resolved.push({
+                    pageUrl: candidate.url,
+                    imageUrl: directThumb,
+                    fallbackUrls: uniqueBy([directImageFallback(candidate.url)], (src) => src),
+                    kind: candidate.source
+                });
                 continue;
             }
             if (!shouldFetchHtml(candidate.url)) {
@@ -474,12 +490,22 @@
                 const html = await gmGetText(candidate.url);
                 const imageUrl = pickImageFromHtml(html, candidate.url);
                 if (imageUrl) {
-                    resolved.push({ pageUrl: candidate.url, imageUrl, kind: "resolved-html" });
+                    resolved.push({
+                        pageUrl: candidate.url,
+                        imageUrl,
+                        fallbackUrls: uniqueBy([directImageFallback(candidate.url), directThumb], (src) => src),
+                        kind: "resolved-html"
+                    });
                 }
             } catch (error) {
                 const fallback = directImageFallback(candidate.url);
                 if (fallback) {
-                    resolved.push({ pageUrl: candidate.url, imageUrl: fallback, kind: "fallback" });
+                    resolved.push({
+                        pageUrl: candidate.url,
+                        imageUrl: fallback,
+                        fallbackUrls: uniqueBy([directThumb], (src) => src),
+                        kind: "fallback"
+                    });
                 }
             }
         }
@@ -515,6 +541,9 @@
                 .replace(/\.md(\.[a-z0-9]+)$/i, "$1");
             return preferFullSizeImageUrl(parsed.href);
         }
+        if (isDirectImageHostAsset(parsed)) {
+            return parsed.href;
+        }
         const cheveretoDirect = cheveretoImageUrl(parsed);
         if (cheveretoDirect) {
             return preferFullSizeImageUrl(cheveretoDirect);
@@ -526,6 +555,14 @@
             return "";
         }
         return imageExt.test(parsed.pathname) ? preferFullSizeImageUrl(parsed.href) : "";
+    }
+
+    function isDirectImageHostAsset(parsed) {
+        const host = parsed.hostname.toLowerCase();
+        if (host.endsWith(".imagetwist.com") && /^\/(?:th|i)\//i.test(parsed.pathname) && imageExt.test(parsed.pathname)) {
+            return true;
+        }
+        return false;
     }
 
     function cheveretoImageUrl(parsed) {
@@ -896,7 +933,8 @@
         const directSources = uniqueBy([
             item.imageUrl,
             directImageFromUrl(item.pageUrl),
-            directImageFallback(item.pageUrl)
+            directImageFallback(item.pageUrl),
+            ...(Array.isArray(item.fallbackUrls) ? item.fallbackUrls : [])
         ], (src) => src);
 
         for (const src of directSources) {
