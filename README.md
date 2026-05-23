@@ -12,6 +12,7 @@ This fork modernizes the old `sukebei preview` behavior for current image hosts.
 - Supports Markdown images, plain image URLs, and image-host landing pages.
 - Handles Chevereto-style hosts where `example.com/upload/file.jpg` is an HTML page and the real image is usually under `example.com/upload/ib/file.jpg`.
 - Falls back to parsing image-host HTML for `og:image`, `/upload/ib/`, and `Application/storage` image URLs.
+- Normalizes duplicate image links, including spaced `https ://` URLs and host-specific real-image rewrites.
 - Displays images at original size when possible, then scales them down responsively so the full image stays visible inside the browser viewport.
 - Filters known ad or placeholder images, including `apiplayer.b-cdn.net/images/static_flyer.jpg`.
 - Cleans legacy preview rows from older `sukebei preview` scripts to avoid duplicate or stale previews.
