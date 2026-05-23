@@ -16,6 +16,7 @@ This fork modernizes the old `sukebei preview` behavior for current image hosts.
 - Normalizes duplicate image links, including spaced `https ://` URLs and host-specific real-image rewrites.
 - Prefers full-size image filenames over common thumbnail suffixes such as `_s`, `_t`, `.th`, and `.md`, with the original thumbnail URL kept as a fallback.
 - Displays images at original size when possible, then scales them down responsively so the full image stays visible inside the browser viewport.
+- Keeps list pages compact by hiding preview rows until images are found and removing rows whose images all fail to load.
 - Filters known ad or placeholder images, including `apiplayer.b-cdn.net/images/static_flyer.jpg`.
 - Cleans legacy preview rows from older `sukebei preview` scripts to avoid duplicate or stale previews.
 - Shows the active script version in the top-right page toggle.
