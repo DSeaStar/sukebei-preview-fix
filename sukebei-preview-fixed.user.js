@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.17
+// @version      2.0.0-codex.18
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -19,10 +19,10 @@
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.17";
+    const SCRIPT_VERSION = "2.0.0-codex.18";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
-    const CACHE_KEY = "sukebei_preview_codex_cache_v7";
+    const CACHE_KEY = "sukebei_preview_codex_cache_v8";
     const enabledKey = "sukebei_preview_codex_enabled";
     const imageExt = /\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
     const urlPattern = /https?\s*:\s*\/\/[^\s"'<>()[\]{}]+/gi;
@@ -189,7 +189,7 @@
 
     function cleanupLegacyPreview() {
         localStorage.setItem("nyaa_check", "no");
-        document.querySelectorAll(".nyaa_check, tr.preview_box").forEach((node) => {
+        document.querySelectorAll(".nyaa_check, tr.preview_box, tr.sp-preview-row").forEach((node) => {
             node.remove();
         });
     }
@@ -672,13 +672,14 @@
 
     function renderPreview(previewRow, items, detailUrl) {
         const box = previewRow.querySelector(".sp-preview-box");
+        const uniqueItems = dedupePreviewItems(items);
         box.classList.remove("sp-loading");
         box.textContent = "";
-        if (!items.length) {
+        if (!uniqueItems.length) {
             previewRow.remove();
             return;
         }
-        items.forEach((item) => {
+        uniqueItems.forEach((item) => {
             const anchor = document.createElement("a");
             anchor.className = "sp-card";
             anchor.href = item.pageUrl || item.imageUrl;
@@ -702,6 +703,10 @@
             box.appendChild(anchor);
             observeImage(image);
         });
+    }
+
+    function dedupePreviewItems(items) {
+        return uniqueBy(items || [], (item) => normalizedImageKey(item.imageUrl || item.pageUrl));
     }
 
     function observeImage(image) {
