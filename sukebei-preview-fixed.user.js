@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.11
+// @version      2.0.0-codex.12
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -18,7 +18,8 @@
     "use strict";
 
     const MAX_PREVIEWS_PER_TORRENT = 8;
-    const SCRIPT_VERSION = "2.0.0-codex.11";
+    const MAX_INLINE_PREVIEWS = 80;
+    const SCRIPT_VERSION = "2.0.0-codex.12";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
     const CACHE_KEY = "sukebei_preview_codex_cache_v7";
@@ -27,6 +28,10 @@
     const urlPattern = /https?:\/\/[^\s"'<>()[\]{}]+/gi;
     const blockedImagePatterns = [
         /^https?:\/\/apiplayer\.b-cdn\.net\/images\/static_flyer\.jpg(?:[?#].*)?$/i
+    ];
+    const shortLinkHosts = [
+        "ouo.io",
+        "ouo.press"
     ];
     const knownHtmlImageHosts = [
         "google-images.papakatsu.co",
@@ -103,21 +108,16 @@
     init();
 
     function init() {
-        if (!document.querySelector(".torrent-list tbody tr")) {
+        const hasList = Boolean(document.querySelector(".torrent-list tbody tr"));
+        const description = document.querySelector("#torrent-description");
+        if (!hasList && !description) {
             return;
         }
 
         cleanupLegacyPreview();
 
         const enabled = localStorage.getItem(enabledKey) !== "0";
-        const toggle = document.createElement("label");
-        toggle.className = "sp-toggle";
-        toggle.innerHTML = `<input type="checkbox" ${enabled ? "checked" : ""}> preview ${SCRIPT_VERSION}`;
-        document.body.appendChild(toggle);
-        toggle.querySelector("input").addEventListener("change", (event) => {
-            localStorage.setItem(enabledKey, event.target.checked ? "1" : "0");
-            location.reload();
-        });
+        addToggle(enabled);
 
         if (!enabled) {
             return;
@@ -127,6 +127,26 @@
             ? new IntersectionObserver(onPreviewVisible, { rootMargin: "900px 0px" })
             : null;
 
+        if (hasList) {
+            initListPage();
+        }
+        if (description) {
+            initViewPage(description);
+        }
+    }
+
+    function addToggle(enabled) {
+        const toggle = document.createElement("label");
+        toggle.className = "sp-toggle";
+        toggle.innerHTML = `<input type="checkbox" ${enabled ? "checked" : ""}> preview ${SCRIPT_VERSION}`;
+        document.body.appendChild(toggle);
+        toggle.querySelector("input").addEventListener("change", (event) => {
+            localStorage.setItem(enabledKey, event.target.checked ? "1" : "0");
+            location.reload();
+        });
+    }
+
+    function initListPage() {
         const rows = Array.from(document.querySelectorAll(".torrent-list tbody tr"));
         rows.forEach((row) => {
             const link = findDetailLink(row);
@@ -138,6 +158,10 @@
             enqueueDetail({ row, previewRow, detailUrl: link.href });
         });
         pumpDetailQueue();
+    }
+
+    function initViewPage(description) {
+        expandInlineImages(description);
     }
 
     function findDetailLink(row) {
@@ -187,7 +211,7 @@
                     renderPreview(task.previewRow, items, task.detailUrl);
                 })
                 .catch((error) => {
-                    renderMessage(task.previewRow, "preview unavailable", error && error.message);
+                    task.previewRow.remove();
                 })
                 .finally(() => {
                     state.activeDetails -= 1;
@@ -205,6 +229,111 @@
         const documentObject = new DOMParser().parseFromString(html, "text/html");
         const description = documentObject.querySelector("#torrent-description");
         return description ? decodeHtml(description.innerHTML) : "";
+    }
+
+    function expandInlineImages(root) {
+        const links = Array.from(root.querySelectorAll("a[href]"));
+        let processed = 0;
+
+        links.forEach((link) => {
+            if (processed >= MAX_INLINE_PREVIEWS || link.dataset.spInlineProcessed === "1") {
+                return;
+            }
+            const href = cleanUrl(link.href || link.getAttribute("href") || "");
+            if (!isExpandableInlineLink(href)) {
+                return;
+            }
+
+            processed += 1;
+            link.dataset.spInlineProcessed = "1";
+
+            const container = document.createElement("div");
+            container.className = "sp-inline-image-container sp-loading";
+            container.innerHTML = `<div class="sp-inline-loading">loading image...</div>`;
+            link.insertAdjacentElement("afterend", container);
+
+            if (isShortLink(href)) {
+                container.remove();
+                return;
+            }
+
+            resolveCandidates([{ url: href, source: "inline-link", thumb: "" }], 1)
+                .then((items) => {
+                    if (!items.length) {
+                        container.remove();
+                        return;
+                    }
+                    renderInlineImage(container, items[0], href);
+                })
+                .catch(() => {
+                    container.remove();
+                });
+        });
+    }
+
+    function isExpandableInlineLink(url) {
+        if (!/^https?:\/\//i.test(url) || looksLikeUiAsset(url)) {
+            return false;
+        }
+        if (isShortLink(url)) {
+            return true;
+        }
+        if (directImageFromUrl(url) || shouldFetchHtml(url)) {
+            return true;
+        }
+        try {
+            const parsed = new URL(url);
+            return imageExt.test(parsed.pathname);
+        } catch {
+            return false;
+        }
+    }
+
+    function isShortLink(url) {
+        try {
+            const host = new URL(url).hostname.toLowerCase();
+            return shortLinkHosts.some((domain) => host === domain || host.endsWith(`.${domain}`));
+        } catch {
+            return false;
+        }
+    }
+
+    function renderInlineImage(container, item, originalUrl) {
+        container.classList.remove("sp-loading");
+        container.innerHTML = "";
+
+        const anchor = document.createElement("a");
+        anchor.className = "sp-card sp-inline-card";
+        anchor.href = item.pageUrl || originalUrl || item.imageUrl;
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+
+        const image = document.createElement("img");
+        image.className = "sp-inline-image";
+        image.alt = "preview image";
+        image.loading = "lazy";
+        image.referrerPolicy = "no-referrer";
+        image.dataset.src = item.imageUrl;
+        image.addEventListener("error", () => {
+            recoverBrokenImage(image, item);
+        });
+
+        anchor.appendChild(image);
+        container.appendChild(anchor);
+        container.appendChild(buildOriginalLink(originalUrl));
+        observeImage(image);
+    }
+
+    function buildOriginalLink(originalUrl) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "sp-original-link";
+        const anchor = document.createElement("a");
+        anchor.href = originalUrl;
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        anchor.textContent = originalUrl;
+        wrapper.append("source: ", anchor);
+        return wrapper;
     }
 
     function extractCandidates(text) {
@@ -439,7 +568,7 @@
         box.classList.remove("sp-loading");
         box.textContent = "";
         if (!items.length) {
-            renderMessage(previewRow, "no supported preview image found", detailUrl);
+            previewRow.remove();
             return;
         }
         items.forEach((item) => {
@@ -463,19 +592,6 @@
             box.appendChild(anchor);
             observeImage(image);
         });
-    }
-
-    function renderMessage(previewRow, message, title) {
-        const box = previewRow.querySelector(".sp-preview-box");
-        box.classList.remove("sp-loading");
-        box.innerHTML = "";
-        const span = document.createElement("span");
-        span.className = "sp-muted";
-        span.textContent = message;
-        if (title) {
-            span.title = title;
-        }
-        box.appendChild(span);
     }
 
     function observeImage(image) {
@@ -740,6 +856,17 @@
                 max-width: calc(100vw - 24px);
                 overflow-x: hidden;
             }
+            .sp-inline-image-container {
+                clear: both;
+                margin: 10px 0;
+                padding: 8px;
+                max-width: calc(100vw - 32px);
+                overflow-x: hidden;
+                background: #f8f8f8;
+                border: 1px solid #e2e2e2;
+                border-radius: 4px;
+                text-align: left;
+            }
             .sp-preview-box {
                 display: flex;
                 align-items: flex-start;
@@ -751,10 +878,20 @@
                 overflow-x: hidden;
             }
             .sp-loading,
-            .sp-muted {
+            .sp-inline-loading {
                 align-items: center;
                 color: #777;
                 font-size: 12px;
+            }
+            .sp-inline-loading,
+            .sp-original-link {
+                color: #777;
+                font-size: 12px;
+                line-height: 1.5;
+                word-break: break-all;
+            }
+            .sp-original-link {
+                margin-top: 6px;
             }
             .sp-card {
                 display: inline-block;
@@ -774,6 +911,10 @@
                 max-width: min(100%, calc(100vw - 48px));
                 max-height: none;
                 object-fit: initial;
+            }
+            .sp-inline-card,
+            .sp-inline-image {
+                max-width: min(100%, calc(100vw - 64px));
             }
             .sp-card-error {
                 display: none;
