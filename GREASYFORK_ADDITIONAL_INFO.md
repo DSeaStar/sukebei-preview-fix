@@ -13,6 +13,7 @@
 - 通用处理 Chevereto 类图床链接，例如 `example.com/upload/xxx.jpg`
 - 自动尝试转换为真实图片地址，例如 `example.com/upload/ib/xxx.jpg`
 - 如果图片直连失败，会尝试抓取原页面 HTML，并从 `og:image`、`/upload/ib/`、`Application/storage` 等位置提取真实图片
+- 会归一化重复图片链接，例如 `https ://` 空格写法和图床真实地址转换后指向同一张图时只显示一次
 - 优先使用原图尺寸显示；当图片超过页面或浏览器宽度时，会按比例缩小，保证完整展示
 - 自动过滤部分广告/占位图，例如 `apiplayer.b-cdn.net/images/static_flyer.jpg`
 - 自动清理旧版脚本插入的预览行，减少重复显示或旧缓存干扰
