@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         sukebei preview
 // @namespace    https://sukebei.nyaa.si/
-// @version      2.0.0-codex.18
+// @version      2.0.0-codex.19
 // @description  More reliable image previews for Sukebei/Nyaa list pages.
 // @author       etorrent, Codex patch
 // @match        https://sukebei.nyaa.si/*
@@ -17,12 +17,18 @@
 (function () {
     "use strict";
 
+    const runFlag = "__sukebeiPreviewCodexActive";
+    if (window[runFlag]) {
+        return;
+    }
+    window[runFlag] = true;
+
     const MAX_PREVIEWS_PER_TORRENT = 8;
     const MAX_INLINE_PREVIEWS = 80;
-    const SCRIPT_VERSION = "2.0.0-codex.18";
+    const SCRIPT_VERSION = "2.0.0-codex.19";
     const DETAIL_CONCURRENCY = 3;
     const CACHE_TTL_MS = 1000 * 60 * 60 * 3;
-    const CACHE_KEY = "sukebei_preview_codex_cache_v8";
+    const CACHE_KEY = "sukebei_preview_codex_cache_v9";
     const enabledKey = "sukebei_preview_codex_enabled";
     const imageExt = /\.(?:avif|gif|jpe?g|png|webp)(?:[?#].*)?$/i;
     const urlPattern = /https?\s*:\s*\/\/[^\s"'<>()[\]{}]+/gi;
@@ -189,7 +195,7 @@
 
     function cleanupLegacyPreview() {
         localStorage.setItem("nyaa_check", "no");
-        document.querySelectorAll(".nyaa_check, tr.preview_box, tr.sp-preview-row").forEach((node) => {
+        document.querySelectorAll(".nyaa_check, tr.preview_box, tr.sp-preview-row, .sp-inline-image-container").forEach((node) => {
             node.remove();
         });
     }
@@ -250,15 +256,25 @@
 
     function expandInlineImages(root) {
         const links = Array.from(root.querySelectorAll("a[href]"));
+        const claimedKeys = new Set();
         let processed = 0;
 
         links.forEach((link) => {
             if (processed >= MAX_INLINE_PREVIEWS || link.dataset.spInlineProcessed === "1") {
                 return;
             }
-            const href = cleanUrl(link.href || link.getAttribute("href") || "");
+            const href = cleanUrl(link.getAttribute("href") || link.href || "");
             if (!isExpandableInlineLink(href)) {
                 return;
+            }
+
+            const reservedKey = previewKeyForUrl(href);
+            if (reservedKey && claimedKeys.has(reservedKey)) {
+                link.dataset.spInlineProcessed = "1";
+                return;
+            }
+            if (reservedKey) {
+                claimedKeys.add(reservedKey);
             }
 
             processed += 1;
@@ -280,7 +296,15 @@
                         container.remove();
                         return;
                     }
-                    renderInlineImage(container, items[0], href);
+                    const itemKey = previewItemKey(items[0]);
+                    if (itemKey && itemKey !== reservedKey && claimedKeys.has(itemKey)) {
+                        container.remove();
+                        return;
+                    }
+                    if (itemKey) {
+                        claimedKeys.add(itemKey);
+                    }
+                    renderInlineImage(container, items[0], href, itemKey || reservedKey);
                 })
                 .catch(() => {
                     container.remove();
@@ -336,12 +360,18 @@
         });
     }
 
-    function renderInlineImage(container, item, originalUrl) {
+    function renderInlineImage(container, item, originalUrl, itemKey) {
         container.classList.remove("sp-loading");
+        if (itemKey) {
+            container.dataset.spKey = itemKey;
+        }
         container.innerHTML = "";
 
         const anchor = document.createElement("a");
         anchor.className = "sp-card sp-inline-card";
+        if (itemKey) {
+            anchor.dataset.spKey = itemKey;
+        }
         anchor.href = item.pageUrl || originalUrl || item.imageUrl;
         anchor.target = "_blank";
         anchor.rel = "noopener noreferrer";
@@ -680,11 +710,15 @@
             return;
         }
         uniqueItems.forEach((item) => {
+            const itemKey = previewItemKey(item);
             const anchor = document.createElement("a");
             anchor.className = "sp-card";
             anchor.href = item.pageUrl || item.imageUrl;
             anchor.target = "_blank";
             anchor.rel = "noopener noreferrer";
+            if (itemKey) {
+                anchor.dataset.spKey = itemKey;
+            }
 
             const image = document.createElement("img");
             image.alt = "";
@@ -706,7 +740,18 @@
     }
 
     function dedupePreviewItems(items) {
-        return uniqueBy(items || [], (item) => normalizedImageKey(item.imageUrl || item.pageUrl));
+        return uniqueBy(items || [], previewItemKey);
+    }
+
+    function previewItemKey(item) {
+        if (!item) {
+            return "";
+        }
+        return normalizedImageKey(item.imageUrl || directImageFromUrl(item.pageUrl) || item.pageUrl);
+    }
+
+    function previewKeyForUrl(url) {
+        return normalizedImageKey(directImageFromUrl(url) || url);
     }
 
     function observeImage(image) {
